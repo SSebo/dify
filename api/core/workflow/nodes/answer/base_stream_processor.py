@@ -22,11 +22,18 @@ class StreamProcessor(ABC):
 
     def _remove_unreachable_nodes(self, event: NodeRunSucceededEvent | NodeRunExceptionEvent) -> None:
         finished_node_id = event.route_node_state.node_id
-        if finished_node_id not in self.rest_node_ids:
-            return
+
+        # The finished_node_id should ideally be in self.rest_node_ids. Currently, when a common prerequisite node runs
+        # successfully, the reachable nodes maybe removed from self.rest_node_ids. The fix logic in
+        # _remove_node_ids_in_unreachable_branch re-adds  reachable nodes to self.rest_node_ids, so we cannot return
+        # early here. Uncomment the following code if unreachable nodes should not be removed prematurely:
+
+        # if finished_node_id not in self.rest_node_ids:
+        #     return
 
         # remove finished node id
-        self.rest_node_ids.remove(finished_node_id)
+        if finished_node_id in self.rest_node_ids:
+            self.rest_node_ids.remove(finished_node_id)
 
         run_result = event.route_node_state.node_run_result
         if not run_result:
@@ -92,6 +99,11 @@ class StreamProcessor(ABC):
         """
         remove target node ids until merge
         """
+
+        # Extend `self.rest_node_ids` with reachable nodes that might have been removed when the common prerequisite
+        # node run succeeded. See Issue: #19552
+        self.rest_node_ids.extend(set(reachable_node_ids) - set(self.rest_node_ids))
+
         if node_id not in self.rest_node_ids:
             return
 
@@ -99,7 +111,6 @@ class StreamProcessor(ABC):
             return
 
         self.rest_node_ids.remove(node_id)
-        self.rest_node_ids.extend(set(reachable_node_ids) - set(self.rest_node_ids))
 
         for edge in self.graph.edge_mapping.get(node_id, []):
             if edge.target_node_id in reachable_node_ids:
